@@ -1,4 +1,7 @@
-filetype off " ファイルタイプ系を一旦OFF
+set encoding=utf-8
+set fileencodings=iso-2202-jp,cp932,sjis,euc-jp,utf-8
+
+" filetype off " ファイルタイプ系を一旦OFF
 
 if has('vim_starting')
   set nocompatible " 挙動をvi互換でなくvimデフォルト動作に変更
