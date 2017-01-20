@@ -1,0 +1,1230 @@
+snippet uvm_svh
+abbr UVM .svh file template
+options head
+	/// 多重定義防止
+	\`ifndef `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	\`define `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	
+	\`include "$1/$1_if.sv"                       ///< $2インターフェース
+	
+	package uvm_${1:`expand('%:t:r')`}_pkg;
+	    import uvm_pkg::*;
+	    \`include "vt100/vt100.svh"               ///< VT100カラー
+	    \`include "uvm_macros.svh"                ///< UVMマクロ
+	    /// ${2:$1}モデル
+	    \`include "$1/$1_item.sv"                 ///< $2トランザクションアイテム
+	    \`include "$1/$1_monitor.sv"              ///< $2モニタ
+	    \`include "$1/$1_driver.sv"               ///< $2ドライバ
+	    \`include "$1/$1_receiver.sv"             ///< $2レシーバ
+	    \`include "$1/$1_sequencer.sv"            ///< $2シーケンサ
+	    \`include "$1/$1_seqlib.sv"               ///< $2シーケンスライブラリ
+	    \`include "$1/$1_v_sequencer.sv"          ///< $2バーチャルシーケンサ
+	    \`include "$1/$1_v_seqlib.sv"             ///< $2バーチャルシーケンスライブラリ
+	    \`include "$1/$1_agent.sv"                ///< $2エージェント
+	    \`include "$1/$1_env.sv"                  ///< $2モデル
+	endpackage
+	\`endif // `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	
+snippet uvm_top
+abbr UVM Top
+alias uvmtop
+	module tb_top();
+	    timeunit      1ps;
+	    timeprecision 1ps;
+	    
+	    /////////////////////////////////////@{
+	    /// @name UVM関連
+	    ///------------------------------------
+	    import uvm_pkg::*;            ///< UVMライブラリ
+	    import uvm_verienv_pkg::*;    ///< UVM検証環境
+	    
+	    system_if             sys();              ///< システムIF
+	    
+	    initial begin
+	        uvm_config_db#(virtual system_if)::set(uvm_root::get() ,"${2:*}"          ,"vi" ,sys );
+	        run_test();
+	    end
+	    //@}
+	    
+	    /////////////////////////////////////@{
+	    /// @name 検証対象
+	    ///------------------------------------
+	    ${1:module_name} #(
+	        .P_XXX(0),
+	        .P_YYY(1)
+	    ) DUV (
+	        .CLK                   (sys.CLK                    ), // input
+	        .RESET                 (sys.RESET                  ), // input
+	    );
+	    //@}
+	endmodule
+	
+snippet uvm_test_base
+abbr UVM Base Test
+alias uvmtestbase
+alias uvmbasetest
+	/// 多重定義防止
+	\`ifndef `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	\`define `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	class ${1:`expand('%:t:r')`} extends uvm_test;
+	    /////////////////////////////////////////
+	    /// メンバ
+	    /////////////////////////////////////////
+	    uvm_table_printer printer;            ///< メッセージ表示用プリンタ
+	    xml_report_server junit_xml_reporter; ///< メッセージ表示用プリンタ
+	    verienv_v_sequencer vseqr;            ///< 全体制御用バーチャルシーケンサー
+	    verienv_env env;                      ///< 環境トップ
+	    
+	    /////////////////////////////////////////
+	    /// UVMオートメーション
+	    /////////////////////////////////////////
+	    \`uvm_component_utils_begin($1)
+	    \`uvm_component_utils_end
+	
+	    /////////////////////////////////////////@{
+	    /// @name UVMフェーズ
+	    /////////////////////////////////////////
+	    /// コンストラクタ
+	    function new(string name, uvm_component parent);
+	        super.new(name, parent);
+	    endfunction
+	
+	    /// 環境構築
+	    virtual function void build_phase(uvm_phase phase);
+	        super.build_phase(phase);
+	        // シーケンサ初期化
+	        uvm_config_db#(uvm_object_wrapper)::set(
+	            this,"vseqr.run_phase", "default_sequence",
+	            verienv_init_seq::type_id::get()
+	        );
+	        // オーバーライド
+	        
+	        // コンポーネント作成
+	        vseqr = verienv_v_sequencer::type_id::create("vseqr",this);
+	        env   = verienv::type_id::create("env",this);
+	        
+	        // コンポーネント設定
+	        uvm_config_db#(int)::set(this,"env.*","is_active",UVM_ACTIVE);
+	        
+	        // ログ・メッセージ関連
+	        junit_xml_reporter = new({"./" ,get_type_name()});
+	        printer = new();
+	        printer.knobs.name_width  = 25+25;
+	        printer.knobs.type_width  = 20+10;
+	        printer.knobs.size_width  = 5;
+	        printer.knobs.value_width = 20+10;
+	    endfunction
+	    
+	    /// コンポーネント接続
+	    virtual function void connect_phase(uvm_phase phase);
+	        vseqr.xxx_seqr = env.xxx.sequencer;
+	    endfunction
+	    
+	    /// 検証環境構成の表示
+	    function void end_of_elaboration_phase(uvm_phase phase);
+	        junit_xml_reporter.enable_xml_logging();
+	        uvm_report_info("Verification Infomation",$psprintf("\n%s",this.sprint(printer)),UVM_LOW);
+	    endfunction
+	    
+	    /// 初期化
+	    function void start_of_simulation_phase(uvm_phase phase);
+	        phase.phase_done.set_drain_time(this,10*1000); // 10us
+	        uvm_report_info("run",$sformatf("%s simulation start...",get_full_name()),UVM_HIGH);
+	    endfunction
+	    
+	    /// レポート
+	    function void report_phase(uvm_phase phase);
+	        uvm_report_server rep;
+	        uvm_report_info("run",$sformatf("%s simulation end... %0t[ps]",get_full_name(),$time),UVM_HIGH);
+	        super.report;
+	        rep = uvm_top.get_report_server();
+	        
+	        if(rep.get_severity_count(UVM_FATAL))begin
+	            $display("%s*** Fatal ***%s",{`VT100_RED},{`VT100_NORMAL});
+	        end else
+	        if(rep.get_severity_count(UVM_ERROR))begin
+	            $display("%s*** Error ***%s",{`VT100_RED},{`VT100_NORMAL});
+	        end else
+	        if(rep.get_severity_count(UVM_WARNING))begin
+	            $display("%s*** Warning ***%s",{`VT100_YELLOW},{`VT100_NORMAL});
+	        end else begin
+	            $display("%s*** Success ***%s",{`VT100_GREEN},{`VT100_NORMAL});
+	        end
+	    endfunction
+	endclass
+	\`endif //`toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	
+snippet uvm_test
+abbr UVM Test
+alias uvmtest
+alias scenario
+	////////////////////////////////////////////////////////////////////////////////
+	///@brief   $2テスト環境
+	///@details $2用テスト環境
+	////////////////////////////////////////////////////////////////////////////////
+	class ${1:`expand('%:t:r')`} extends ${2:verienv_base_test};
+	    /////////////////////////////////////////
+	    /// メンバ
+	    /////////////////////////////////////////
+	    /////////////////////////////////////////
+	    /// UVMオートメーション
+	    /////////////////////////////////////////
+	    \`uvm_component_utils_begin($1)
+	    \`uvm_component_utils_end
+	
+	    /////////////////////////////////////////@{
+	    /// @name UVMフェーズ
+	    /////////////////////////////////////////
+	    /// コンストラクタ
+	    function new(string name, uvm_component parent);
+	        super.new(name, parent);
+	    endfunction
+	
+	    /// 環境構築
+	    virtual function void build_phase(uvm_phase phase);
+	        super.build_phase(phase);
+	        // シーケンサ指定
+	        uvm_config_db#(uvm_object_wrapper)::set(
+	            this,"vseqr.run_phase", "default_sequence",
+	            $1_seq::type_id::get()
+	        );
+	    endfunction
+	endclass
+	
+snippet uvm_agent
+abbr UVM Agent
+alias uvmagent
+	/// 多重定義防止
+	\`ifndef `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	\`define `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	////////////////////////////////////////////////////////////////////////////////
+	///@brief   $2エージェント
+	///@details $2用エージェントです。
+	////////////////////////////////////////////////////////////////////////////////
+	class ${1:`expand('%:t:r')`} extends uvm_agent;
+	    ///////////////////////////////////////
+	    /// メンバ
+	    ///////////////////////////////////////
+	    // ステータス
+	    uvm_active_passive_enum is_active;  ///< 動作モード設定
+	    // コンポーネント
+	    ${2:`substitute(expand('%:t:r'),'_[^_]\+$','','')`}_sequencer sequencer; ///< $2シーケンサ
+	    $2_driver    driver;    ///< $2ドライバ
+	    $2_receiver  receiver;  ///< $2レシーバ
+	    $2_monitor   monitor;   ///< $2モニタ
+	
+	    ///////////////////////////////////////
+	    /// UVMオートメーション
+	    ///////////////////////////////////////
+	    \`uvm_component_utils_begin($1)
+	        \`uvm_field_enum(uvm_active_passive_enum, is_active, UVM_ALL_ON)
+	    \`uvm_component_utils_end
+	
+	    ///////////////////////////////////////@{
+	    /// @name UVMフェーズ
+	    ///////////////////////////////////////
+	    /// コンストラクタ
+	    function new(string name, uvm_component parent);
+	        super.new(name, parent);
+	        is_active = UVM_ACTIVE;
+	    endfunction
+	    
+	    /// 環境構築
+	    virtual function void build_phase(uvm_phase phase);
+	        super.build_phase(phase);
+	        monitor = $2_monitor::type_id::create("monitor",this);
+	        if (is_active == UVM_ACTIVE) begin
+	            driver    = $2_driver::type_id::create("driver",this);
+	            receiver  = $2_receiver::type_id::create("receiver",this);
+	            sequencer = $2_sequencer::type_id::create("sequencer",this);
+	        end
+	    endfunction
+	    
+	    /// コンポーネント間接続
+	    virtual function void connect_phase(uvm_phase phase);
+	        if (is_active == UVM_ACTIVE) begin
+	            driver.seq_item_port.connect(sequencer.seq_item_export);
+	            receiver.seq_item_port.connect(sequencer.seq_item_export);
+	        end
+	    endfunction
+	    //@}
+	endclass
+	\`endif //`toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	
+snippet uvm_transfer
+abbr UVM Item
+alias uvm_sequence_item
+alias uvm_data_item
+alias uvm_item
+alias uvmitem
+	/// 多重定義防止
+	\`ifndef `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	\`define `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	////////////////////////////////////////////////////////////////////////////////
+	///@brief   ${2:$1}トランスファー
+	///@details $2のUVMトランザクションアイテムです。
+	////////////////////////////////////////////////////////////////////////////////
+	class ${1:`expand('%:t:r')`} extends uvm_sequence_item;
+	    ///////////////////////////////////////
+	    /// メンバ
+	    ///////////////////////////////////////
+	    rand bit[127:0]   value;            ///< ビットデータ
+	    rand time         t;                ///< 時間(符号なし64bit)
+	    rand real         double;           ///< 実数(64bit浮動小数点)
+	    rand xxx_enum_t   xxx_enum;         ///< 列挙体
+	    rand xxx_struct_t xxx_struct;       ///< 構造体
+	    rand bit[7:0]     s_array[10];      ///< 静的配列
+	    rand bit[7:0]     d_array[];        ///< 動的配列
+	    rand bit[7:0]     q_array[$];       ///< キュー配列
+	    rand bit[7:0]     aa[string];       ///< 連想配列
+	
+	    ///////////////////////////////////////
+	    /// UVMオートメーション
+	    ///////////////////////////////////////
+	    \`uvm_object_utils_begin($1)
+	        \`uvm_field_{int,real,string}(xxx, UVM_ALL_ON)
+	        \`uvm_field_{enum,object}(xxx, type, UVM_ALL_ON)
+	        \`uvm_field_(, UVM_ALL_ON)
+	    \`uvm_object_utils_end
+	
+	    /* 制約など */
+	    // constraint xxx_c {
+	    // }
+	   
+	    ///////////////////////////////////////@{
+	    /// @name UVMフェーズ
+	    ///////////////////////////////////////
+	    /// コンストラクタ
+	    function new(string name="$1");
+	        super.new(name);
+	    endfunction
+	    //@}
+	
+	endclass
+	\`endif //`toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+snippet uvm_driver
+abbr UVM Driver
+alias uvmdriver
+	/// 多重定義防止
+	\`ifndef `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	\`define `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	////////////////////////////////////////////////////////////////////////////////
+	///@brief   $4ドライバ
+	///@details $4のドライバです。
+	////////////////////////////////////////////////////////////////////////////////
+	class ${1:`expand('%:t:r')`} extends uvm_driver #(${2:`substitute(expand('%:t:r'),'_[^_]\+$','_item','')`});
+	    ///////////////////////////////////////
+	    /// メンバ
+	    ///////////////////////////////////////
+	    protected virtual ${3:`substitute(expand('%:t:r'),'_[^_]\+$','_if','')`} vi;  ///< ${4:`substitute(expand('%:t:r'),'_[^_]\+$','','')`}インタフェース
+	
+	    ///////////////////////////////////////
+	    /// UVMオートメーション
+	    ///////////////////////////////////////
+	    \`uvm_component_utils_begin($1)
+	    \`uvm_component_utils_end
+	
+	    ///////////////////////////////////////@{
+	    /// @name UVMフェーズ
+	    ///////////////////////////////////////
+	    /// コンストラクタ
+	    function new(string name, uvm_component parent);
+	        super.new(name, parent);
+	    endfunction
+	
+	    /// ビルド
+	    function void build_phase(uvm_phase phase);
+	        super.build_phase(phase);
+	        if(uvm_config_db#(virtual $3)::get(this,"","vi",vi))begin
+	            uvm_report_info("Interface", {"virtual interface set for: ",get_full_name(),".vi"},UVM_HIGH);
+	        end else begin
+	            uvm_report_fatal("Interface", {"virtual interface must be set for: ",get_full_name(),".vi"});   
+	        end
+	    endfunction
+	    
+	    /// 実行動作
+	    task run_phase(uvm_phase phase);
+	        reset_signals();  // IF初期化
+	        get_and_drive();  // IF制御
+	    endtask
+	    ///////////////////////////////////////@}
+	
+	    /**
+	    * @brief   IF制御
+	    * @details IFの制御を行います。
+	    */
+	    task get_and_drive();
+	        forever begin
+	            seq_item_port.get_next_item(req);
+	            $cast(rsp,req.clone());
+	            rsp.set_id_info(req);
+	            drive_transfer(rsp);
+	            seq_item_port.item_done();
+	            seq_item_port.put_response(rsp);
+	        end
+	    endtask
+	    
+	    /**
+	    * @brief   信号ドライブ処理
+	    * @details トランザクションアイテムを元に信号をドライブします。
+	    */
+	    task drive_transfer($2 tr);
+	            // ここにIF制御を記述します。
+	            // vi.XXX = tr.xxx_val; 等
+	    endtask
+	
+	    /**
+	    * @brief   リセット動作
+	    * @details IFを初期化します。
+	    */
+	    task reset_signals();
+	            // ここにIFの初期化を記述します。
+	            // vi.XXX = 0; 等
+	            ${0}
+	    endtask
+	endclass
+	\`endif //`toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+snippet uvm_env
+abbr UVM Env
+alias uvmenv
+	/// 多重定義防止
+	\`ifndef `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	\`define `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	////////////////////////////////////////////////////////////////////////////////
+	///@brief     $1
+	///@details   $1機能です。<br>
+	////////////////////////////////////////////////////////////////////////////////
+	class ${1:`expand('%:t:r')`} extends uvm_env;
+	    
+	    ///////////////////////////////////////
+	    /// メンバ
+	    ///////////////////////////////////////
+	    bit intf_checks_enable     = 1;           ///< チェッカ有効
+	    bit intf_coverage_enable   = 1;           ///< カバレッジ有効
+	        
+	    ///////////////////////////////////////
+	    /// UVMオートメーション
+	    ///////////////////////////////////////
+	    \`uvm_component_utils_begin($1)
+	        \`uvm_field_int(intf_checks_enable   , UVM_ALL_ON)
+	        \`uvm_field_int(intf_coverage_enable , UVM_ALL_ON)
+	    \`uvm_component_utils_end
+	
+	    ///////////////////////////////////////@{
+	    /// @name UVMコンポーネント
+	    ///////////////////////////////////////
+	    ${2}_agent ${2};  ///< 
+	    ///////////////////////////////////////@}
+	
+	    ///////////////////////////////////////@{
+	    /// @name UVMフェーズ
+	    ///////////////////////////////////////
+	    /// コンストラクタ
+	    function new(string name, uvm_component parent);
+	        super.new(name, parent);
+	    endfunction
+	
+	    /// 環境構築
+	    virtual function void build_phase(uvm_phase phase);
+	        super.build_phase(phase);
+	            /// オブジェクト生成
+	            masters = new[num_masters];
+	            for(int i=0; i < num_masters; i++) begin
+	                string inst_name;
+	                $sformat(inst_name, "masters[%0d]",i);
+	                set_config_int({inst_name, "*"}, "master_id", i);
+	                masters[i] = $1_master_agent::type_id::create(inst_name, this);
+	            end
+	            slaves  = new[num_slaves];
+	            for(int i=0; i < num_slaves; i++) begin
+	                string inst_name;
+	                $sformat(inst_name, "slaves[%0d]",i);
+	                set_config_int({inst_name, "*"}, "slave_id", i);
+	                slaves[i] = $1_slave_agent::type_id::create(inst_name, this);
+	            end
+	    endfunction
+	    ///////////////////////////////////////@}
+	
+	endclass
+	\`endif //`toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+snippet uvm_interface
+abbr UVM Interface
+alias interface
+	/// 多重定義防止
+	\`ifndef `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	\`define `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	////////////////////////////////////////////////////////////////////////////////
+	///@brief   ${2:$1}インターフェース
+	///@details $2のインターフェースです。
+	////////////////////////////////////////////////////////////////////////////////
+	interface ${1:`expand('%:t:r')`}(
+	    input logic CLK,
+	    input logic RESET
+	);
+	    logic [31:0] port_name;
+	
+	endinterface
+	\`endif //`toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+snippet uvm_mon
+abbr UVM Monitor
+alias uvm_monitor
+alias uvmmon
+alias uvmmonitor
+	/// 多重定義防止
+	\`ifndef `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	\`define `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	////////////////////////////////////////////////////////////////////////////////
+	///@brief   $1モニタ
+	///@details $1のUVMモニタです。
+	////////////////////////////////////////////////////////////////////////////////
+	class ${1:uvc_name}_monitor extends uvm_monitor;
+	    /////////////////////////////////////////
+	    /// メンバ
+	    /////////////////////////////////////////
+	    ${4}
+	    ///////////////////////////////////////
+	    /// UVMオートメーション
+	    ///////////////////////////////////////
+	    \`uvm_component_utils_begin($1)
+	        \`uvm_field_object(trans, UVM_ALL_ON)
+	    \`uvm_component_utils_end
+	
+	    /// メンバ
+	    bit    checks_en    = 1;          ///< チェッカ有効
+	    bit    coverage_en  = 1;          ///< カバレッジ有効
+	    string msg_index    = "[$1]"; ///< メッセージインデックス
+	    virtual interface ${2:uvc_if} vif; ///< $1インタフェース
+	    ${3:uvc_trans} trans;   ///< 一時保存用
+	    uvm_analysis_port #($3) item_collected_port; ///< アナリシスポート
+	    string tID;
+	    event e_trans_collected; ///< event to signal transaction collected
+	
+	    ///@brief   モニタ動作
+	    ///@details バスをモニタします。
+	    task collect_trans();
+	        forever begin
+	            //put code to collect bus transactions here
+	            #10 ;
+	            
+	            #10 ;
+	            
+	            ->e_trans_collected; //signal transaction collection complete
+	            //post good transactions to scoreboard if enabled
+	            if (item_collected_port.size() > 0)
+	                item_collected_port.write(trans);
+	        end;
+	    endtask
+	
+	    // to FIX stuff for covergroup
+	    /*
+	    //shell code for covergroup
+	    covergroup cov_trans @ e_trans_collected;
+	    cg1: coverpoint trans..$fields[2].
+	      { bins MIN[]     = {0};
+	        bins MAX[]     = {63};
+	      }
+	    endgroup
+	    */
+	
+	
+	    ///////////////////////////////////////@{
+	    /// @name UVMフェーズ
+	    ///////////////////////////////////////
+	    /// コンストラクタ
+	    function new(string name, uvm_component parent);
+	        super.new(name, parent);
+	        tID = get_type_name();
+	        tID = tID.toupper();
+	        // to FIX stuff for covergroup
+	        /*
+	        cov_trans = new();
+	        cov_trans.set_inst_name({get_full_name(), ".cov_trans"});
+	        */
+	        trans = new();
+	        item_collected_port = new("item_collected_port", this);
+	    endfunction
+	    /// 実行動作
+	    task run();
+	        collect_trans();
+	    endtask
+	
+	    /// report
+	    virtual function void report();
+	        //fill in any reporting code if needed
+	        logic dummy;
+	    endfunction
+	    ///////////////////////////////////////@}
+	
+	endclass
+	\`endif //`toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+snippet uvm_scoreboard
+abbr UVM Scoreboard
+alias uvmscoreboard
+	/// 多重定義防止
+	\`ifndef `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	\`define `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	////////////////////////////////////////////////////////////////////////////////
+	///@brief   $1 スコアボード
+	///@details $1向けスコアボードです。
+	////////////////////////////////////////////////////////////////////////////////
+	class ${1:uvc_name}_scoreboard extends uvm_scoreboard;
+	    \`uvm_component_utils_begin($1)
+	        \`uvm_field_string(msg_index, UVM_ALL_ON)
+	    \`uvm_component_utils_end
+	    /// メンバ
+	    string msg_index; // メッセージインデックス
+	endclass
+	\`endif //`toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+snippet uvm_seqlib
+abbr UVM SequenceLibrary
+alias uvmseqlib
+	/// 多重定義防止
+	\`ifndef `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	\`define `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	
+	
+	
+	////////////////////////////////////////////////////////////////////////////////
+	///@brief   $1 基底シーケンス
+	///@details $1_sequencer用基底シーケンスです。
+	////////////////////////////////////////////////////////////////////////////////
+	class ${1:`substitute(expand('%:t:r'),'_[^_]\+$','','')`}_base_seq extends uvm_sequence #(${2:`substitute(expand('%:t:r'),'_[^_]\+$','_item','')`});
+	    /////////////////////////////////////////
+	    /// メンバ
+	    /////////////////////////////////////////
+	    
+	    
+	    ///////////////////////////////////////
+	    /// UVMオートメーション(1.1d-)
+	    ///////////////////////////////////////
+	    \`uvm_declare_p_sequencer($1_sequencer)
+	    \`uvm_object_utils_begin($1_base_seq)
+	    \`uvm_object_utils_end
+	    
+	    ///////////////////////////////////////@{
+	    /// @name UVMフェーズ
+	    ///////////////////////////////////////
+	    /// コンストラクタ
+	    function new(string name = "$1_base_seq");
+	       super.new(name);
+	    endfunction
+	
+	    /// 前処理
+	    task pre_body();
+	        if(starting_phase!=null)begin
+	            starting_phase.raise_objection(this);
+	        end
+	    endtask
+	
+	    /// 後処理
+	    task post_body();
+	        if(starting_phase!=null)begin
+	            starting_phase.drop_objection(this);
+	        end
+	    endtask
+	    ///@}
+	
+	    /////////////////////////////////////////////@{
+	    /// @name シーケンス内コモン関数
+	    /////////////////////////////////////////////
+	    ///------------------------------------------
+	    ///@brief   クロック遅延
+	    ///@details 指定したサイクル数のクロック遅延を挿入する。
+	    ///------------------------------------------
+	    task wait_clk(
+	        input int n      ///< サイクル数
+	    );
+	        // 処理を記述する
+	    endtask
+	    
+	    ///------------------------------------------
+	    ///@brief   初期化
+	    ///@details 初期化を行う。
+	    ///------------------------------------------
+	    task init();
+	       // 初期化処理を記述する
+	    endtask
+	    ///@}
+	endclass
+	// **注意**
+	//  クラス定義より後ろの行にシーケンスを定義すると、基底クラス内で
+	//  そのクラスが参照できない為、基底シーケンスは末尾に置くように！
+	\`endif //`toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+snippet uvm_v_seq
+abbr UVM VirtualSequence
+alias uvm_vseq
+alias uvmvseq
+	////////////////////////////////////////////////////////////////////////////////
+	///@brief   $1 バーチャルシーケンス
+	///@details バーチャルシーケンサ用シーケンスです。
+	////////////////////////////////////////////////////////////////////////////////
+	class `substitute(expand('%:t:r'),'_v_[^_]\+$','','')`_${1:xxx}_vseq extends ${2:`substitute(expand('%:t:r'),'_v_[^_]\+$','_base_vseq','')`};
+	    /////////////////////////////////////////
+	    /// メンバ
+	    /////////////////////////////////////////
+	    
+	    
+	    ///////////////////////////////////////
+	    /// UVMオートメーション(1.1d-)
+	    ///////////////////////////////////////
+	    \`uvm_object_utils_begin(`substitute(expand('%:t:r'),'_v_[^_]\+$','','')`_$1_vseq)
+	    \`uvm_object_utils_end
+	    
+	    ///////////////////////////////////////@{
+	    /// @name UVMフェーズ
+	    ///////////////////////////////////////
+	    /// コンストラクタ
+	    function new(string name = "`substitute(expand('%:t:r'),'_v_[^_]\+$','','')`_$1_vseq");
+	       super.new(name);
+	    endfunction
+	
+	    /// メイン処理
+	    task body();
+	        ${0:#:ここにシナリオを記述します。}
+	    endtask
+	    ///@}
+	endclass
+snippet uvm_v_seqlib
+abbr UVM VirtualSequence SequenceLibrary
+alias uvm_vseqlib
+alias uvmvseqlib
+	/// 多重定義防止
+	\`ifndef `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	\`define `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	typedef class $1_base_vseq;
+	
+	${0}
+	
+	////////////////////////////////////////////////////////////////////////////////
+	///@brief   $1 基底シーケンス
+	///@details $1_v_sequencer用基底シーケンスです。
+	////////////////////////////////////////////////////////////////////////////////
+	class ${1:`substitute(expand('%:t:r'),'_v_[^_]\+$','','')`}_base_vseq extends uvm_sequence;
+	    /////////////////////////////////////////
+	    /// メンバ
+	    /////////////////////////////////////////
+	    
+	    
+	    ///////////////////////////////////////
+	    /// UVMオートメーション(1.1d-)
+	    ///////////////////////////////////////
+	    \`uvm_object_utils_begin($1_base_vseq)
+	    \`uvm_object_utils_end
+	    \`uvm_declare_p_sequencer($1_v_sequencer)
+	    
+	    ///////////////////////////////////////@{
+	    /// @name UVMフェーズ
+	    ///////////////////////////////////////
+	    /// コンストラクタ
+	    function new(string name = "$1_base_vseq");
+	       super.new(name);
+	    endfunction
+	
+	    /// 前処理
+	    task pre_body();
+	        if(starting_phase!=null)begin
+	            starting_phase.raise_objection(this);
+	        end
+	    endtask
+	
+	    /// 後処理
+	    task post_body();
+	        if(starting_phase!=null)begin
+	            starting_phase.drop_objection(this);
+	        end
+	    endtask
+	    ///@}
+	
+	    /////////////////////////////////////////////@{
+	    /// @name シーケンス内コモン関数
+	    /////////////////////////////////////////////
+	    ///------------------------------------------
+	    ///@brief   クロック遅延
+	    ///@details 指定したサイクル数のクロック遅延を挿入する。
+	    ///------------------------------------------
+	    task wait_clk(
+	        input int n      ///< サイクル数
+	    );
+	        // 処理を記述する
+	    endtask
+	    
+	    ///------------------------------------------
+	    ///@brief   初期化
+	    ///@details 初期化を行う。
+	    ///------------------------------------------
+	    task init();
+	       // 初期化処理を記述する
+	    endtask
+	    ///@}
+	endclass
+	// **注意**
+	//  クラス定義より後ろの行にシーケンスを定義すると、基底クラス内で
+	//  そのクラスが参照できない為、基底シーケンスは末尾に置くように！
+	\`endif //`toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+snippet uvm_sequencer
+abbr UVM Sequencer
+alias uvmsequencer
+alias uvm_seqr
+alias uvmseqr
+	/// 多重定義防止
+	\`ifndef `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	\`define `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	////////////////////////////////////////////////////////////////////////////////
+	///@brief   `substitute(expand('%:t:r'),'_[^_]\+$','','')`シーケンサ
+	///@details `substitute(expand('%:t:r'),'_[^_]\+$','','')`用シーケンサです。
+	////////////////////////////////////////////////////////////////////////////////
+	class ${1:`expand('%:t:r')`} extends uvm_sequencer #(${2:`substitute(expand('%:t:r'),'_[^_]\+$','_item','')`});
+	    /////////////////////////////////////////
+	    /// メンバ
+	    /////////////////////////////////////////
+	
+	    ///////////////////////////////////////
+	    /// UVMオートメーション
+	    ///////////////////////////////////////
+	    \`uvm_component_utils_begin($1)
+	    \`uvm_component_utils_end
+	
+	    /////////////////////////////////////////@{
+	    /// @name UVMフェーズ
+	    /////////////////////////////////////////
+	    /// コンストラクタ
+	    function new(string name, uvm_component parent);
+	        super.new(name, parent);
+	    endfunction
+	
+	    /// 環境構築
+	    virtual function void build_phase(uvm_phase phase);
+	        super.build_phase(phase);
+	    endfunction
+	    ///@}
+	endclass
+	\`endif //`toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+snippet uvm_sve
+abbr UVM Sve
+alias uvmsve
+	/// 多重定義防止
+	\`ifndef `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	\`define `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	class sve extends uvm_env;
+	    ${2}
+	    ${1:uvc_name}_env env0;
+	    ///////////////////////////////////////
+	    /// UVMオートメーション
+	    ///////////////////////////////////////
+	    \`uvm_component_utils_begin(sve)
+	    \`uvm_component_utils_end
+	
+	    /////////////////////////////////////////@{
+	    /// @name UVMフェーズ
+	    /////////////////////////////////////////
+	    /// コンストラクタ
+	    function new(string name, uvm_component parent);
+	        super.new(name, parent);
+	    endfunction
+	
+	    /// 環境構築
+	    virtual function void build_phase(uvm_phase phase);
+	        super.build_phase(phase);
+	        env0 = $1_env::type_id::create("env0", this);
+	    endfunction
+	
+	    /// コンポーネント間接続
+	    virtual function void connect_phase(uvm_phase phase);
+	        env0.agent0.assign_vif(top.if0);
+	    endfunction
+	    ///@}
+	endclass
+	\`endif //`toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+snippet parameter
+abbr parameter .. 
+options head indent
+	parameter ${1:param_name} = ${2:param_value};
+	${3}
+snippet program
+abbr program .. { .. }
+options head indent
+	program automatic ${1:name};
+	    // declarations
+	    ${2}
+	
+	    initial begin
+	
+	    end
+	endprogram
+snippet rand
+abbr rand ... { ... }
+	rand ${1:type} ${2:name};
+	
+	constraint $2_cst {
+	    // define constraint here using dist, inside, = etc
+	    ${3}
+	};
+snippet randcase
+abbr randcase ..
+options head indent
+        randcase
+	    ${1:weight1}:
+	        ${3}
+	    ${2:weight2}:
+	endcase
+snippet repeat
+abbr repeat(N) ..
+options head indent
+	repeat(${1:N}) begin
+	    ${2}
+	end
+snippet union
+abbr union ... { ... }
+options head indent
+	typedef union {
+	    ${2:bit[7:0]   value;}      ///< 
+	} ${1:xxx_union}_t;
+snippet enum
+abbr enum .. { .. }
+options head indent
+	typedef enum {
+	    ${2:XXX_AAAAA   = 0,}       ///< 
+	} ${1:xxx_enum}_t;
+snippet struct
+abbr struct ... { ... }
+options head indent
+	typedef struct ${1:packed} {
+	   ${3:bit[7:0]   value;}       ///< 
+	} ${2:xxx_struct}_t;
+snippet task
+abbr task .. endtask
+options head indent
+	task ${1:task_name} ($3);
+	  ${2}
+	endtask
+snippet typedef
+abbr typedef ..
+	typedef ${1:type} ${2:type_name};
+	${3}
+snippet always
+abbr always @ ..
+options head indent
+	always @(${1:posedge CLK or posedge RESET}) begin
+	    if(RESET)begin
+	        r_${2:data} <= 0;
+	    end else begin
+	        r_$2 <= #1 w_${3:data};
+	    end
+	end
+snippet always_ff
+abbr always_ff ..
+options head indent
+	always_ff @(${1:posedge CLK or posedge RESET}) begin
+	    if(RESET)begin
+	        r_${2:data} <= 0;
+	    end else begin
+	        r_$2 <= #1 w_${3:data};
+	    end
+	end
+snippet always_comb
+abbr always_comb ..
+options head indent
+	always_comb begin
+	    ${1}
+	end
+snippet always_latch
+abbr always_latch ..
+options head indent
+	always_latch
+	    ${1}
+	end
+snippet case
+abbr case() .. 
+options head indent
+	case(${1:expression})
+	    ${2:value1}: begin
+	        ${3}
+	    end
+	
+	    // other case branches
+	
+	    default: begin
+	
+	    end
+	endcase
+snippet casex
+abbr casex() .. 
+options head indent
+	casex(${1:expression})
+	    ${2:value1}: begin
+	        ${3}
+	    end
+	
+	    // other case branches
+	
+	    default: begin
+	
+	    end
+	endcase
+snippet casez
+abbr casez() .. 
+options head indent
+	casez(${1:expression})
+	    ${2:value1}: begin
+	        ${3}
+	    end
+	
+	    // other case branches
+	
+	    default: begin
+	
+	    end
+	endcase
+snippet class
+abbr class .. endclass
+options head indent
+	////////////////////////////////////////////////////////////////////////////////
+	///@brief   $1クラス
+	///@details $1の機能を持ちます。<br>
+	////////////////////////////////////////////////////////////////////////////////
+	class ${1:name} extends ${2:base};
+	    /// コンストラクタ
+	    function new(${3:args});
+	        super.new($3);
+	    endfunction
+	    
+	    /// ${0}
+	    
+	endclass
+snippet clocking
+abbr clocking .. { .. }
+options head indent
+	///@brief   $1系クロック
+	///@details $1系のクロック設定です。
+	clocking ${2:clk}_cb @(posedge ${1:CLK});
+	    default input #${3:1ns} output #$3;
+	    ${0}
+	endclocking
+snippet do
+abbr do .. while()
+options head indent
+	do begin
+	    ${2}
+	end while($1);
+snippet final
+abbr final ..
+options head indent
+	final begin
+	   ${1}
+	end
+snippet for
+abbr for() .. 
+options head indent
+	for(${1:i}=0; $1${2:<32}; ${3:$1=$1+1})begin
+	    ${0}
+	end
+snippet foreach
+abbr foreach(x[i]) ..
+options head indent
+	foreach(${1:x}[i])begin
+	    ${2}
+	end
+snippet forever
+abbr forever .. 
+options head indent
+	forever begin
+	    ${1}
+	end
+snippet fork
+abbr fork .. join
+options head indent
+	fork
+	    begin
+	        ${1}
+	    end
+	join
+snippet fork_any
+abbr fork .. join_any
+options head indent
+	fork
+	    begin
+	        ${1}
+	    end
+	join_any
+snippet fork_none
+abbr fork .. join_none
+options head indent
+	fork
+	    begin
+	        ${1}
+	    end
+	join_none
+snippet function
+abbr function .. endfunction
+options head indent
+	function ${1:void} ${2:function_name} ($3);
+	    ${4}
+	endfunction
+snippet if
+abbr if() .. 
+options head indent
+	if(${1:condition}) begin
+	    ${2}
+	end
+	
+snippet initial
+abbr initial ..
+options head indent
+	initial begin
+	    ${1}
+	end
+snippet modport
+abbr modport .. { .. }
+options head indent
+	modport ${1:name_mp}
+	    (${2}
+	     // clocking clocking_cb,
+	     // input input_name,
+	     // output output_port,
+	     // ....
+	    );
+snippet package
+abbr package .. endpackage
+	/// 多重定義防止
+	\`ifndef `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	\`define `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	
+	package uvm_${1:`expand('%:t:r')`}_pkg;
+	    \`include "$1/$1_${2:xxx}.sv"        ///< $2
+	endpackage
+	\`endif // `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+snippet module
+abbr module .. endmodule
+	////////////////////////////////////////////////////////////////////////////////
+	//% @brief   $1モジュール
+	//% @details $1を行う。主な機能は次の通り。<br>
+	//%          - $1機能<br>
+	////////////////////////////////////////////////////////////////////////////////
+	module ${1:`expand('%:t:r')`} (
+	    input  wire        CLK,            //%< クロック
+	    input  wire        RESET,          //%< リセット
+	    input  wire[127:0] IN_PORT,        //%< 信号説明
+	    output wire[127:0] OUT_PORT,       //%< 信号説明
+	);
+	    ${0}
+	endmodule
+snippet uvm_new
+abbr function new(string,uvm_component)...
+options head indent
+alias uvm_phase_header
+alias phase_header
+	/////////////////////////////////////////@{
+	/// @name UVMフェーズ
+	/////////////////////////////////////////
+	/// コンストラクタ
+	function new(string name, uvm_component parent);
+	    super.new(name, parent);
+	endfunction
+	
+	
+	
+	///@}
+
+snippet uvm_connect
+abbr function connect_phase(uvm_phase)...
+options head indent
+alias uvm_connect_phase
+alias uvm_connect
+alias connect_phase
+alias connect
+alias uvm_phase_connect
+alias phase_connect
+	/// コンポーネント接続
+	virtual function void connect_phase(uvm_phase phase);
+	    super.connect_phase(phase);
+	endfunction
+
+snippet uvm_end_of_elaboration
+abbr function end_of_elaboration_phase(uvm_phase)...
+options head indent
+alias uvm_end_of_elaboration_phase
+alias uvm_end_of_elaboration
+alias end_of_elaboration_phase
+alias end_of_elaboration
+alias uvm_phase_end_of_elaboration
+alias phase_end_of_elaboration
+	/// 環境構成完了時
+	function void end_of_elaboration_phase(uvm_phase phase);
+	    super.end_of_elaboration_phase(phase);
+	endfunction
+
+snippet uvm_start_of_simulation
+abbr function start_of_simulation_phase(uvm_phase)...
+options head indent
+alias uvm_start_of_simulation_phase
+alias uvm_start_of_simulation
+alias start_of_simulation_phase
+alias start_of_simulation
+alias uvm_phase_start_of_simulation
+alias phase_start_of_simulation
+	/// 初期化
+	function void start_of_simulation_phase(uvm_phase phase);
+	    super.start_of_simulation_phase(phase);
+	endfunction
+
+snippet uvm_report
+abbr function report_phase(uvm_phase)...
+options head indent
+alias uvm_report_phase
+alias uvm_report
+alias report_phase
+alias report
+alias uvm_phase_report
+alias phase_report
+	/// レポート
+	function void report_phase(uvm_phase phase);
+	    super.report_phase(phase);
+	endfunction
+
+snippet uvm_build_phase
+abbr function build_phase(uvm_phase)...
+options head indent
+alias uvm_build_phase
+alias uvm_build
+alias build_phase
+alias build
+alias uvm_phase_build
+alias phase_build
+	/// 環境構築
+	virtual function void build_phase(uvm_phase phase);
+	    super.build_phase(phase);
+	endfunction
+
+snippet once
+abbr `ifndef XXX; `define XXX; `endif
+	/// 多重定義防止
+	\`ifndef `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	\`define `toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+	
+	${1}
+	
+	\`endif //`toupper('__'.substitute(expand('%:t'), '\.', '_', '').'__')`
+snippet header_file
+alias ///
+abbr file header
+options head
+	/////////////////////////////////////////////////////////////////////////////
+	/// @date    Last Update: ${1:`strftime("%Y/%m/%d")`}
+	/// @file    `expand('%:t')`
+	/// @version ${2:rev.0.1}
+	/// @author  CMEngineering Co.,Ltd (${3:`$USER`})
+	/// @brief   ${4:`substitute(expand('%:t:r'), '_', ' ', '')`}クラス
+	/// @details ${5:#:詳細な機能説明を記載してください。}
+	/// @par     history
+	/// $1 $2 新規作成($3)
+	/////////////////////////////////////////////////////////////////////////////
+	${0}
+snippet header_block
+alias //
+abbr block header
+options head indent
+	////////////////////////////////////////////////////////////////////////////////
+	///@brief   ${0}
+	///@details 
+	////////////////////////////////////////////////////////////////////////////////
+        
